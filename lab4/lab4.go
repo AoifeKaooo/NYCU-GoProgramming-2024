@@ -21,17 +21,14 @@ func Calculator(w http.ResponseWriter, r *http.Request) {
 	num1Str := r.URL.Query().Get("num1")
 	num2Str := r.URL.Query().Get("num2")
 
-	// Convert string parameters to integers
 	num1, err1 := strconv.Atoi(num1Str)
 	num2, err2 := strconv.Atoi(num2Str)
 
-	// Check for conversion errors or missing parameters
 	if err1 != nil || err2 != nil || op == "" {
 		http.ServeFile(w, r, "error.html")
 		return
 	}
 
-	// Perform the calculation based on the operation
 	var data PageData
 	tmpl := template.Must(template.ParseFiles("index.html"))
 	switch op {
@@ -74,3 +71,4 @@ func main() {
 	http.HandleFunc("/", Calculator)
 	log.Fatal(http.ListenAndServe(":8084", nil))
 }
+
