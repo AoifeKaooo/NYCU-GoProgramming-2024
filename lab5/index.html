@@ -2,8 +2,11 @@
 <html lang="en">
 
 <head>
-    <meta charset="utf-8" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prime Checker</title>
     <style>
+        /* 加入 CSS 樣式 */
         body {
             font-family: 'Arial', sans-serif;
             margin: 0;
@@ -67,8 +70,11 @@
             color: #333;
         }
     </style>
-    <script src="wasm_exec.js"></script>
+
+    <!-- 引用 wasm_exec.js -->
+    <script src="wasm/wasm_exec.js"></script>
     <script>
+        // 加載 WebAssembly 模組並運行
         const go = new Go();
         WebAssembly.instantiateStreaming(fetch('wasm/lib.wasm'), go.importObject).then((result) => {
             go.run(result.instance);
@@ -83,7 +89,7 @@
             <button id="check" onclick="CheckPrime()">Check Prime</button>
         </div>
         <div>
-            <span id="answer"></span>
+            <span id="answer">It's not prime</span>
         </div>
     </div>
 </body>
