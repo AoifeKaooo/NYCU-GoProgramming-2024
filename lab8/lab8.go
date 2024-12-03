@@ -67,6 +67,6 @@ func main() {
 		if i >= *max {
 			break
 		}
-		fmt.Printf("%d. 名字：%s，留言: %s，時間：%s\n", i+1, comment.Name, comment.Content, comment.Time)
+		fmt.Printf("%d. 名字：%s，留言: %s, 時間： %s\n", i+1, comment.Name, comment.Content, comment.Time)
 	}
 }
