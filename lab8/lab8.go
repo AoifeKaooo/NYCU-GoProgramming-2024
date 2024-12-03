@@ -3,70 +3,116 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
+	"net/http"
 	"os"
 	"strings"
 
-	"github.com/gocolly/colly"
+	"golang.org/x/net/html"
 )
 
 func main() {
-	// 定義 -max flag，預設值為 10
-	max := flag.Int("max", 10, "限制印出的留言數量 (預設為 10)")
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
-		fmt.Fprintln(os.Stderr, "  -max <number>: 限制印出的留言數量 (預設為 10)")
-	}
+	// Define the flag for the maximum number of comments
+	max := flag.Int("max", 10, "Max number of comments to show")
 	flag.Parse()
 
-	// 驗證 max 的值
-	if *max <= 0 {
-		log.Fatal("Error: -max 必須為正整數")
-	}
+	// URL to crawl
+	url := "https://www.ptt.cc/bbs/joke/M.1481217639.A.4DF.html"
 
-	// 使用 Colly 建立 Collector
-	c := colly.NewCollector()
-
-	// 保存留言資料
-	type Comment struct {
-		Name    string
-		Content string
-		Time    string
-	}
-	var comments []Comment
-
-	// 選擇留言的 HTML 區塊
-	c.OnHTML(".push", func(e *colly.HTMLElement) {
-		name := strings.TrimSpace(e.ChildText(".push-userid"))
-		content := strings.TrimSpace(e.ChildText(".push-content"))
-		time := strings.TrimSpace(e.ChildText(".push-ipdatetime"))
-
-		// 檢查必要資料是否存在
-		if name != "" && content != "" && time != "" {
-			comments = append(comments, Comment{
-				Name:    name,
-				Content: strings.TrimPrefix(content, ": "), // 去掉留言內容前的 ": "
-				Time:    time,
-			})
-		}
-	})
-
-	// 設定錯誤處理
-	c.OnError(func(_ *colly.Response, err error) {
-		log.Println("Request failed:", err)
-	})
-
-	// 爬取 PTT 頁面
-	err := c.Visit("https://www.ptt.cc/bbs/joke/M.1481217639.A.4DF.html")
+	// Fetch the page content
+	resp, err := http.Get(url)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "Failed to fetch URL: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Error: HTTP %d\n", resp.StatusCode)
+		os.Exit(1)
 	}
 
-	// 格式化輸出留言，根據 max 限制數量
+	// Parse the HTML content
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to parse HTML: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Extract comments
+	comments := extractComments(doc)
+
+	// Print the comments, limiting to the specified max, without extra newlines
 	for i, comment := range comments {
 		if i >= *max {
 			break
 		}
-		fmt.Printf("%d. 名字：%s，留言: %s, 時間： %s\n", i+1, comment.Name, comment.Content, comment.Time)
+
+		fmt.Printf("%d. %s", i+1, comment)
 	}
+}
+
+// extractComments traverses the HTML node tree and extracts text comments
+func extractComments(n *html.Node) []string {
+	var comments []string
+	var f func(*html.Node)
+	f = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "div" {
+			for _, attr := range n.Attr {
+				if attr.Key == "class" && attr.Val == "push" {
+					comment := extractPushContent(n)
+					if comment != "" {
+						comments = append(comments, comment)
+					}
+					break
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			f(c)
+		}
+	}
+	f(n)
+	return comments
+}
+
+// extractPushContent extracts the text content from a push comment node
+func extractPushContent(n *html.Node) string {
+	var name, text, time string
+	var extract func(*html.Node)
+	extract = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			for _, attr := range n.Attr {
+				if attr.Key == "class" {
+					switch attr.Val {
+					case "f3 hl push-userid":
+						name = getTextContent(n)
+					case "f3 push-content":
+						text = strings.TrimPrefix(getTextContent(n), ": ")
+					case "push-ipdatetime":
+						time = getTextContent(n)
+					}
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			extract(c)
+		}
+	}
+	extract(n)
+	if name != "" && text != "" && time != "" {
+		return fmt.Sprintf("名字：%s，留言: %s，時間：%s", name, text, time)
+	}
+	return ""
+}
+
+// getTextContent extracts the text content of an HTML node
+func getTextContent(n *html.Node) string {
+	if n.Type == html.TextNode {
+		return n.Data
+	}
+	var result string
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		result += getTextContent(c)
+	}
+	return result
 }
