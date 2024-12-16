@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -28,8 +27,7 @@ func broadcaster() {
 	for {
 		select {
 		case msg := <-MessageBroadcast:
-			// Broadcast incoming message to all
-			// clients' outgoing message channels.
+			// Broadcast incoming message to all clients
 			for cli := range clients {
 				cli <- msg.V.(string)
 			}
@@ -46,7 +44,7 @@ func broadcaster() {
 
 func clientWriter(conn *websocket.Conn, ch <-chan string) {
 	for msg := range ch {
-		conn.WriteMessage(1, []byte(msg))
+		conn.WriteMessage(websocket.TextMessage, []byte(msg))
 	}
 }
 
@@ -63,13 +61,13 @@ func wshandle(w http.ResponseWriter, r *http.Request) {
 
 	who := conn.RemoteAddr().String()
 	ch <- "你是 " + who + "\n"
-	messages <- rxgo.Of(who + " 來到了現場" + "\n")
+	messages <- rxgo.Of(who + " 來到了現場\n")
 	entering <- ch
 
 	defer func() {
 		log.Println("disconnect !!")
 		leaving <- ch
-		messages <- rxgo.Of(who + " 離開了" + "\n")
+		messages <- rxgo.Of(who + " 離開了\n")
 		conn.Close()
 	}()
 
@@ -84,90 +82,67 @@ func wshandle(w http.ResponseWriter, r *http.Request) {
 }
 
 func InitObservable() {
-	// 读取 swear_word.txt 和 sensitive_name.txt 的内容
-	swearWords := readLines("swear_word.txt")
-	sensitiveNames := readLines("sensitive_name.txt")
+	// 載入髒話與敏感字詞清單
+	swearWords := loadWords("swear_word.txt")
+	sensitiveWords := loadWords("sensitive_name.txt")
 
-	// Filter 和 Map 的实现
+
 	ObservableMsg = ObservableMsg.
-		Filter(func(item interface{}) bool {
-			// 类型断言为 rxgo.Item
-			msg, ok := item.(rxgo.Item)
-			if !ok {
-				return false
-			}
-			text, ok := msg.V.(string)
-			if !ok {
-				return false
-			}
-
-			// 如果消息包含任意一个 swear word，返回 false 以过滤掉
-			for _, word := range swearWords {
-				if containsWord(text, word) {
-					return false
-				}
-			}
-			return true
+		Filter(func(i interface{}) bool {
+			msg := i.(string)
+			return !containsSwearWords(msg, swearWords)
 		}).
-		Map(func(_ context.Context, item interface{}) (interface{}, error) {
-			// 类型断言为 rxgo.Item
-			msg, ok := item.(rxgo.Item)
-			if !ok {
-				return nil, fmt.Errorf("invalid item type")
-			}
-			text, ok := msg.V.(string)
-			if !ok {
-				return nil, fmt.Errorf("invalid message content")
-			}
-
-			// 如果消息中包含 sensitive name，替换第二个字为 '*'
-			for _, name := range sensitiveNames {
-				if containsWord(text, name) {
-					maskedName := maskName(name)
-					text = replaceWord(text, name, maskedName)
-				}
-			}
-			return rxgo.Of(text), nil
+		Map(func(_ context.Context, i interface{}) (interface{}, error) {
+			msg := i.(string)
+			return replaceSensitiveWords(msg, sensitiveWords), nil
 		})
 }
 
-// 读取文件内容到字符串切片
-func readLines(filePath string) []string {
-	file, err := os.Open(filePath)
+func loadWords(filename string) []string {
+	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatalf("无法打开文件 %s: %v", filePath, err)
+		log.Printf("Error opening %s: %v", filename, err)
+		return nil
 	}
 	defer file.Close()
 
-	var lines []string
+	var words []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		word := strings.TrimSpace(scanner.Text())
+		if word != "" {
+			words = append(words, word)
+		}
 	}
 	if err := scanner.Err(); err != nil {
-		log.Fatalf("读取文件 %s 出错: %v", filePath, err)
+		log.Printf("Error reading %s: %v", filename, err)
 	}
-	return lines
+	return words
 }
 
-// 检查消息是否包含特定的单词
-func containsWord(msg, word string) bool {
-	return strings.Contains(msg, word)
-}
-
-// 替换敏感名字的第二个字为 '*'
-func maskName(name string) string {
-	if len(name) >= 3 {
-		runes := []rune(name)
-		runes[1] = '*'
-		return string(runes)
+func containsSwearWords(msg string, swearWords []string) bool {
+	for _, w := range swearWords {
+		if w != "" && strings.Contains(msg, w) {
+			return true
+		}
 	}
-	return name
+	return false
 }
 
-// 替换消息中的单词
-func replaceWord(msg, oldWord, newWord string) string {
-	return strings.ReplaceAll(msg, oldWord, newWord)
+func replaceSensitiveWords(msg string, sensitiveWords []string) string {
+	for _, w := range sensitiveWords {
+		if strings.Contains(msg, w) {
+			runes := []rune(w)
+			if len(runes) > 1 {
+				masked := string(runes[0]) + "*"
+				if len(runes) > 2 {
+					masked += string(runes[2:])
+				}
+				msg = strings.ReplaceAll(msg, w, masked)
+			}
+		}
+	}
+	return msg
 }
 
 func main() {
